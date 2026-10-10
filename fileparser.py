@@ -1,3 +1,16 @@
+import os
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__)) # Gets base directory of the files
+TEST_DIR = os.path.join(BASE_DIR, 'test_cases') # Sets the test case file directory
+
+def resolve_path(filename: str):
+    for folder in ('', TEST_DIR):
+        for name in (filename, filename + '.txt'): # Fail-safe mechanism, works even if user doesn't include file extension (name only)
+            candidate = os.path.join(folder, name)
+            if os.path.isfile(candidate): # Checks if the file name exists, if it does return it
+                return candidate
+    return filename # Only reaches here if no matching file is found, used for error handling
+
 def parse_file(filename: str): # Function to nom nom information from yummy file I AM LOSING MY MIND
 
     # Defining variables for the file reader
@@ -7,7 +20,7 @@ def parse_file(filename: str): # Function to nom nom information from yummy file
     destinations = [] # Accepts list of destinations
     section = None
 
-    with open(filename, 'r') as file:
+    with open(resolve_path(filename), 'r') as file: # Resolves the path before opening
         for lineno, raw in enumerate(file, start=1):
             line = raw.strip() # Strips whitespaces and line breaks
             if not line:
