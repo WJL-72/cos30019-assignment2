@@ -8,10 +8,11 @@ from algorithms import methods
 # Output labels from search.py
 LABELS = {
     'time_ms': 'Time taken for test',
+    'peak_memory': 'Memory usage (peak)',
     'goal': 'Goal reached',
     'nodes_created': 'Nodes created',
     'moves': 'Number of moves',
-    'total_cost': 'Total cost',
+    'total_cost': 'Total cost'
 }
  
 # Column header for the CSV
@@ -41,6 +42,9 @@ with open('results.csv', 'w', newline='') as file:
             row['time_ms'] = row['time_ms'].replace(' ms', '')
             row['goal'] = row['goal'].replace('Node ', '').split(' ')[0]
             row['route'] = lines[-1] if 'Final route:' in lines else ''
+            row['peak_memory'] = row['peak_memory'].replace(' kB', '').strip()
+            if row['peak_memory'].startswith('Not measured'):
+                row['peak_memory'] = ''
  
             writer.writerow([row[column] for column in COLUMNS]) # Writes the row in the same order as the headers
  

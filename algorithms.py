@@ -34,9 +34,9 @@ def cus2(nodes: dict, edges: dict, origin: int, destinations: list):
         if node not in h_cache:
             if node in nodes and goal_points and longest_edge > 0:
                 nearest = min(math.dist(nodes[node], point) for point in goal_points)
-                h_cache[node] = math.ceil(nearest / longest_edge - 1e-9) # Gets edges that (- 1e-9 prevents float rounding errors)
+                h_cache[node] = math.ceil(nearest / longest_edge - 1e-9) # Gets edges that are available to move (- 1e-9 prevents float rounding errors)
             else:
-                h_cache[node] = 0  # If there is no information (no coordinates, no goal found or no length edge), do NOT move
+                h_cache[node] = 0  # If there is no information (no coordinates, no goal found or no length edge), do not move from the current node
         return h_cache[node]
 
     # Shared search state across iterations

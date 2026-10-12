@@ -11,7 +11,7 @@ def resolve_path(filename: str):
                 return candidate
     return filename # Only reaches here if no matching file is found, used for error handling
 
-def parse_file(filename: str): # Function to nom nom information from yummy file I AM LOSING MY MIND
+def parse_file(filename: str):
 
     # Defining variables for the file reader
     nodes = {} # { node: (x, y), ...}

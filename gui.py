@@ -5,14 +5,18 @@ from tkinter import font as tkfont
 
 import algorithms
 from fileparser import parse_file
-from search import route_cost
+from search import route_cost, run_measured
 
 BG = '#ffffff'
 R = 18
 SIDE_SHIFT = 5
 LABEL_SHIFT = 12 # Weight label is 12px away from edge line
 LABEL_POS = 0.3 # Weight label are located 30% of the edge length
-FOOTER = 105 # Space kept at the bottom of the window for the legend and status text
+
+FOOTER = 150 # Space kept at the bottom of the window for the legend and status text
+LEGEND_Y = 130 # Center of legend row
+LEGEND_ICON = 16 # Diameter of legend icon
+STATUS_Y = 10 # Baseline of status text
 
 # Colours for each state of the search, and the outline that shows a node's role
 UNEXPLORED, FRONTIER, EXPLORED, CURRENT, FINAL, FINAL_EDGE = '#cccccc', "#ff8400", "#8cd1e6", "#ff0000", "#45af4a", "#297232"
@@ -62,7 +66,7 @@ def draw_label(canvas, x, y, cost):
 
 def main():
     if len(sys.argv) != 3: # Checks if all arguments are received
-        print('Usage: python gui.py <filename> [method]')
+        print('Usage: python gui.py <filename> <method>')
         print(f"Methods available: {', '.join(algorithms.methods)}")
         sys.exit(1)
 
@@ -81,6 +85,8 @@ def main():
         sys.exit(1)
     goals = set(destinations)
 
+    goal, created, path, time_taken, memory_text = run_measured(algorithms.methods[method], nodes, edges, origin, destinations)
+
     # Recording the search
     events = [] # Holds an entry for each expanded node
     original = algorithms.sorted_neighbours
@@ -92,7 +98,7 @@ def main():
         return neighbours
 
     algorithms.sorted_neighbours = watching # Monkey patching to replace the function
-    goal, created, path = algorithms.methods[method](nodes, edges, origin, destinations)
+    algorithms.methods[method](nodes, edges, origin, destinations)
     path_edges = set(zip(path, path[1:])) # Edges used by the final path
 
     if goal is None:
@@ -100,7 +106,8 @@ def main():
     else:
         cost = route_cost(edges, path)
         route = ' -> '.join(str(n) for n in path)
-        result = result = (f'Goal reached: node {goal}   |   Moves: {len(path) - 1}   |   Total cost: {cost:g}   |   Nodes created: {created} \nRoute: {route}')
+        result = result = (f'Goal reached: Node {goal}   |   Nodes created: {created}   |   Number of moves: {len(path) - 1}   |   Total cost: {cost:g} \nFinal route: {route}')
+        performance = f'Time taken: {time_taken:.3f} ms   |   Memory usage (peak): {memory_text}'
 
     # Animating the search step by step
     def frames():
@@ -116,7 +123,7 @@ def main():
 
             # Yield used as an alternative for return, remembers previous state before pausing (important to keep track). Also has iteration for IDA* search
             yield explored, frontier, node, f'Step {step} of {len(events)}: exploring node {node}' + (f'(iteration {iteration})' if iteration > 1 else ''), False
-        yield explored, frontier, None, 'Search finished\n' + result, True
+        yield explored, frontier, None, 'SEARCH COMPLETED! \n\n' + performance + '\n' + result, True
 
     def draw(frame):
         explored, frontier, current, message, finished = frame # Unpacks information as a frame
@@ -165,18 +172,22 @@ def main():
             canvas.create_oval(x - R, y - R, x + R, y + R, fill=fill, outline=outline, width=outline_width)
             canvas.create_text(x, y, text=str(node), font=('Arial', 10, 'bold'))
 
-        # Legend and status text along the bottom
+        # Legend icon and text
         x = 20
+        icon_top = height - LEGEND_Y - LEGEND_ICON / 2 # Top edge of legend icon
+        icon_bottom = height - LEGEND_Y + LEGEND_ICON / 2 # Bottom edge of legend icon
         for text, fill, outline in LEGEND:
-            canvas.create_oval(x, height - 97, x + 16, height - 81, fill=fill, outline=outline, width=1.5 if outline == NORMAL_OUTLINE else 3) # Creates legend icon
-            canvas.create_text(x + 22, height - 89, text=text, anchor='w', font=legend_font) # Creates legend text
-            x += 44 + legend_font.measure(text) # Update x value for spacing
-        canvas.create_text(20, height - 68, text=message, anchor='nw', font=('Arial', 10, 'bold' if not finished else 'normal')) # Status message
+            canvas.create_oval(x, icon_top, x + LEGEND_ICON, icon_bottom, fill=fill, outline=outline, width=1.5 if outline == NORMAL_OUTLINE else 3)
+            canvas.create_text(x + LEGEND_ICON + 6, height - LEGEND_Y, text=text, anchor='w', font=legend_font) # Label of legend
+            x += 28 + LEGEND_ICON + legend_font.measure(text) # Positions the next legend right beside the previous one
+
+        # Status text anchored to bottom so it grows upwards
+        canvas.create_text(20, height - STATUS_Y, text=message, anchor='sw', width=width - 40, font=('Arial', 10, 'bold' if not finished else 'normal'))
 
     # Creates graph window
     root = tk.Tk()
     root.title(f'{filename} - {method}')
-    root.geometry('1000x760')
+    root.geometry('1024x768')
     root.minsize(760, 520)
     legend_font = tkfont.Font(family='Arial', size=9)
     canvas = tk.Canvas(root, bg=BG, highlightthickness=0)
