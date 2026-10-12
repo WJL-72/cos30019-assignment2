@@ -23,17 +23,16 @@ def node_positions(nodes, width, height):
     pad = R * 3
 
     # Determining the scale to be used for rendering
-    scale = min((width  - 2 * pad) / (graph_w or 1),
+    scale = min((width - 2 * pad) / (graph_w or 1),
                 (height - 2 * pad) / (graph_h or 1))
 
     # Positioning of left-most and bottom-most edges so the graph is centered
-    left = (width  - graph_w * scale) / 2
+    left = (width - graph_w * scale) / 2
     bottom = (height + graph_h * scale) / 2
 
     # Maps the node to their respective positions
     return {node_id: (left + (x - min(xs)) * scale, bottom - (y - min(ys)) * scale)
             for node_id, (x, y) in nodes.items()}
-
 
 def draw_edge(canvas, start, end, cost, two_way): # Draws the graph edges
     x1, y1 = start
@@ -70,7 +69,7 @@ def draw_label(canvas, x, y, cost):
 # Draws the node
 def draw_node(canvas, node_id, position):
     x, y = position
-    canvas.create_oval(x - R, y - R, x + R, y + R, fill='#ddd', outline='#555', width=1.5)
+    canvas.create_oval(x - R, y - R, x + R, y + R, fill='#dddddd', outline='#555555', width=1.5)
     canvas.create_text(x, y, text=str(node_id), font=('Arial', 10, 'bold'))
 
 # Draws entire graph
@@ -78,7 +77,7 @@ def draw(canvas, nodes, edges):
     canvas.delete('all') # Clear canvas before drawing graph
 
     # Current canvas size in pixels (900px and 600px set as fallback value)
-    width  = canvas.winfo_width()  or 900
+    width = canvas.winfo_width() or 900
     height = canvas.winfo_height() or 600
     pos = node_positions(nodes, width, height) # Decides node positions
 

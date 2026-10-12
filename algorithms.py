@@ -42,11 +42,11 @@ def cus2(nodes: dict, edges: dict, origin: int, destinations: list):
     # Shared search state across iterations
     path = [origin] # Returns currently explored branch
     on_path = {origin} # Check if the node is in current path
-    created = 0 # Total search-tree nodes expanded across all iterations (cumulative)
+    created = 0 # Total search-tree nodes created across all iterations (cumulative)
 
     def limited_dfs(g: int, limit: int):
         """
-        Depth-first search from the last node of `path`, not going past f = limit.
+        Depth-first search from the last node of 'path', not going past f = limit.
         Returns (found, number):
             found -> True if a goal was reached (path then holds the answer)
             number -> if found, f of the goal; if not, the smallest f that was cut off
@@ -85,7 +85,7 @@ def cus2(nodes: dict, edges: dict, origin: int, destinations: list):
         return False, smallest_cut # End-case if no goal was found, return smallest F
 
     # Iterations
-    limit = h(origin) # First limit will be origin
+    limit = h(origin) # First limit will be h(origin)
     while limit != math.inf: # Check for infinite limit (no solution)
         created += 1  # Rebuilds search tree on every iteration, restarts search with 0 moves
         found, value = limited_dfs(0, limit)

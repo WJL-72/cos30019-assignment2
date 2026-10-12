@@ -44,12 +44,12 @@ def main():
 
     if goal is None:
         print("Goal reached: None (no destination is reachable)")
-        print(f"Nodes expanded: {node_count}")
+        print(f"Nodes created: {node_count}")
         return
 
     print(f"\nGoal reached: Node {goal}")
-    print(f"Nodes expanded: {node_count}")
-    print(f"Length of route: {len(path) - 1}" )
+    print(f"Nodes created: {node_count}")
+    print(f"Number of moves: {len(path) - 1}" )
     print(f"Total cost: {route_cost(edges, path):g}")
     print("Final route:")
     print(' -> '.join(str(n) for n in path))
