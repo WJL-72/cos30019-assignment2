@@ -101,13 +101,15 @@ def main():
     algorithms.methods[method](nodes, edges, origin, destinations)
     path_edges = set(zip(path, path[1:])) # Edges used by the final path
 
+    performance = f'Time taken: {time_taken:.3f} ms   |   Memory usage (peak): {memory_text}' # Performance metrics for the search
+
+    # Forms the text for output when destination is found/not found
     if goal is None:
         result = f'No destination can be reached. Nodes created: {created}'
     else:
         cost = route_cost(edges, path)
         route = ' -> '.join(str(n) for n in path)
         result = result = (f'Goal reached: Node {goal}   |   Nodes created: {created}   |   Number of moves: {len(path) - 1}   |   Total cost: {cost:g} \nFinal route: {route}')
-        performance = f'Time taken: {time_taken:.3f} ms   |   Memory usage (peak): {memory_text}'
 
     # Animating the search step by step
     def frames():
