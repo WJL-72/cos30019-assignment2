@@ -85,29 +85,34 @@ def main():
         sys.exit(1)
     goals = set(destinations)
 
+    # Gets all the information by running it once
     goal, created, path, time_taken, memory_text = run_measured(algorithms.methods[method], nodes, edges, origin, destinations)
 
-    # Recording the search
+    # ---------- RECORDING THE SEARCH FOR GUI PLAYBACK ----------
     events = [] # Holds an entry for each expanded node
-    original = algorithms.sorted_neighbours
+    class WatchedEdges(dict): # Watches over the expanded edges to record expansion
+        def __getitem__(self, node):
+            neighbours = super().__getitem__(node) # Looks up the dictionary record
+            events.append((node, [n for n, _ in neighbours])) # Records the event 
+            return neighbours
 
-    # Edited version of sorted_neighbours function, added logging for current node and its neighbours
-    def watching(edges, node):
-        neighbours = original(edges, node)
-        events.append((node, [n for n, _ in neighbours]))
-        return neighbours
+        # Overrides get to use the code above instead of using normal implementation
+        def get(self, node, default = None): 
+            return self[node] if node in self else default
 
-    algorithms.sorted_neighbours = watching # Monkey patching to replace the function
-    algorithms.methods[method](nodes, edges, origin, destinations)
+    # Runs the search algorithm
+    algorithms.methods[method](nodes, WatchedEdges(edges), origin, destinations)
     path_edges = set(zip(path, path[1:])) # Edges used by the final path
 
+    performance = f'Time taken: {time_taken:.3f} ms   |   Memory usage (peak): {memory_text}' # Performance metrics for the search
+
+    # Forms the text for output when destination is found/not found
     if goal is None:
         result = f'No destination can be reached. Nodes created: {created}'
     else:
         cost = route_cost(edges, path)
         route = ' -> '.join(str(n) for n in path)
         result = result = (f'Goal reached: Node {goal}   |   Nodes created: {created}   |   Number of moves: {len(path) - 1}   |   Total cost: {cost:g} \nFinal route: {route}')
-        performance = f'Time taken: {time_taken:.3f} ms   |   Memory usage (peak): {memory_text}'
 
     # Animating the search step by step
     def frames():
