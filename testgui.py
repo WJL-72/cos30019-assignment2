@@ -11,6 +11,10 @@ SIDE_SHIFT = 5
 LABEL_SHIFT = 12 # Weight label is 12px away from edge line
 LABEL_POS = 0.3 # Weight label are located 30% of the edge length
 
+ORIGIN = "#0044ff"
+DESTINATION ="#ff0000"
+NORMAL = '#555555'
+
 
 def node_positions(nodes, width, height):
     xs = [x for x, _ in nodes.values()]
@@ -67,13 +71,13 @@ def draw_label(canvas, x, y, cost):
     canvas.tag_lower(box, text)
 
 # Draws the node
-def draw_node(canvas, node_id, position):
+def draw_node(canvas, node_id, position, outline=NORMAL, outline_width=1.5):
     x, y = position
-    canvas.create_oval(x - R, y - R, x + R, y + R, fill='#dddddd', outline='#555555', width=1.5)
+    canvas.create_oval(x - R, y - R, x + R, y + R, fill='#cccccc', outline=outline, width=outline_width)
     canvas.create_text(x, y, text=str(node_id), font=('Arial', 10, 'bold'))
 
 # Draws entire graph
-def draw(canvas, nodes, edges):
+def draw(canvas, nodes, edges, origin, destinations):
     canvas.delete('all') # Clear canvas before drawing graph
 
     # Current canvas size in pixels (900px and 600px set as fallback value)
@@ -94,23 +98,29 @@ def draw(canvas, nodes, edges):
     for x, y, cost in labels:
         draw_label(canvas, x, y, cost)
 
-    # Draw nodes after so it is placed on top of the edge
+    # Draw nodes after so it is placed on top of the edge (colours outline according to the node type)
     for node_id, position in pos.items():
-        draw_node(canvas, node_id, position)
+        if node_id == origin:
+            draw_node(canvas, node_id, position, ORIGIN, 4)
+        elif node_id in destinations:
+            draw_node(canvas, node_id, position, DESTINATION, 4)
+        else:
+            draw_node(canvas, node_id, position)
 
 if __name__ == '__main__':
     if len(sys.argv) != 2: # Requires one argument only atm, just filename as this is just to visualise graph
-        print('Usage: python visualise.py <filename>')
+        print('Usage: python testgui.py <filename>')
         sys.exit(1)
 
-    # Parsing the input file, only accept nodes and edges atm since its testing
-    nodes, edges, *_ = parse_file(sys.argv[1])
+    # Parsing the input file (reads origin and destination nodes to determine outline)
+    nodes, edges, origin, destinations = parse_file(sys.argv[1])
 
     # Creates graph window
     root = tk.Tk()
     root.title(sys.argv[1])
-    root.geometry('900x650')
+    root.geometry('1024x768')
+    root.minsize(760, 520)
     canvas = tk.Canvas(root, bg=BG, highlightthickness=0)
     canvas.pack(fill=tk.BOTH, expand=True)
-    canvas.bind('<Configure>', lambda _e: draw(canvas, nodes, edges)) # Redraw graph to fit when window is resized
+    canvas.bind('<Configure>', lambda _e: draw(canvas, nodes, edges, origin, destinations)) # Redraw graph to fit when window is resized
     root.mainloop()
