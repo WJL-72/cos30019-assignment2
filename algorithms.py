@@ -15,8 +15,8 @@ def path_from(record) -> list:
     while record is not None:
         path.append(record[0])
         record = record[1]
-        path.reverse()
-        return path
+    path.reverse()
+    return path
 
 # ---------- DFS: DEPTH-FIRST SEARCH ----------
 """ Frontier is a stack (LIFO), always expanding the deepest node. Neighbours are pushed in DESCENDING order so that the SMALLEST neighbour
@@ -36,6 +36,7 @@ def dfs(nodes: dict, edges: dict, origin: int, destinations: list):
             continue
         if node in goals: # goal test in expansion
             return node, created, path_from(record)
+        expanded.add(node) #mark as expanded so it doesnt expand again, avoids loop
 
         for neighbour, cost in reversed(sorted_neighbours(edges, node)): # reversed so that smallest ends on top of stack
             if neighbour in expanded:
