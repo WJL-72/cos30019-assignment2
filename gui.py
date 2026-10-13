@@ -3,7 +3,7 @@ import math
 import tkinter as tk
 from tkinter import font as tkfont
 
-import algorithms
+from algorithms import methods, visit_all
 from fileparser import parse_file
 from search import route_cost, run_measured
 
@@ -65,17 +65,19 @@ def draw_label(canvas, x, y, cost):
     canvas.tag_lower(canvas.create_rectangle(canvas.bbox(text), fill=BG, outline=''), text)
 
 def main():
-    if len(sys.argv) != 3: # Checks if all arguments are received
-        print('Usage: python gui.py <filename> <method>')
-        print(f"Methods available: {', '.join(algorithms.methods)}")
+    if len(sys.argv) not in (3, 4) or (len(sys.argv) == 4 and sys.argv[3].lower() != '--all'): # Validates 3 arguments or 4 with the optional --all toggle
+        print('Usage: python gui.py <filename> <method> [--all]')
+        print('  --all: visits ALL destinations instead of stopping after one')
+        print(f"Methods available: {', '.join(methods)}")
         sys.exit(1)
 
     filename = sys.argv[1]
     method = sys.argv[2].upper()
+    visit_every = len(sys.argv) == 4 # True when --all is given
 
-    if method not in algorithms.methods: # Error if method is incorrect
+    if method not in methods: # Error if method is incorrect
         print(f"Error: '{method}' does not exist!")
-        print(f"Methods available: {', '.join(algorithms.methods)}")
+        print(f"Methods available: {', '.join(methods)}")
         sys.exit(1)
 
     try: # Error handling for file parsing
@@ -86,22 +88,34 @@ def main():
     goals = set(destinations)
 
     # Gets all the information by running it once
-    goal, created, path, time_taken, memory_text = run_measured(algorithms.methods[method], nodes, edges, origin, destinations)
+    algorithm = visit_all(methods[method]) if visit_every else methods[method] # Wraps the method if all destinations must be visited
+    goal, created, path, time_taken, memory_text = run_measured(algorithm, nodes, edges, origin, destinations)
 
     # ---------- RECORDING THE SEARCH FOR GUI PLAYBACK ----------
-    events = [] # Holds an entry for each expanded node
+    events = [] # Holds an entry for each expanded node: (leg number, node, neighbours)
+    legs = [] # Start node of each leg (usually one leg or one per destination reached when --all is used)
     class WatchedEdges(dict): # Watches over the expanded edges to record expansion
         def __getitem__(self, node):
             neighbours = super().__getitem__(node) # Looks up the dictionary record
-            events.append((node, [n for n, _ in neighbours])) # Records the event 
+            events.append((len(legs) - 1, node, [n for n, _ in neighbours])) # Records the event under the current leg
             return neighbours
 
         # Overrides get to use the code above instead of using normal implementation
         def get(self, node, default = None): 
             return self[node] if node in self else default
 
+    # Notes down where each leg starts so the playback knows when a new leg begins
+    def mark_legs(search):
+        def run(nodes, edges, start, dests):
+            legs.append(start) # Events recorded from here on belong to this leg
+            return search(nodes, edges, start, dests)
+        return run
+
     # Runs the search algorithm
-    algorithms.methods[method](nodes, WatchedEdges(edges), origin, destinations)
+    recorder = mark_legs(methods[method])
+    if visit_every:
+        recorder = visit_all(recorder) # Each leg is marked, then the goal reached becomes the next origin
+    recorder(nodes, WatchedEdges(edges), origin, destinations)
     path_edges = set(zip(path, path[1:])) # Edges used by the final path
 
     performance = f'Time taken: {time_taken:.3f} ms   |   Memory usage (peak): {memory_text}' # Performance metrics for the search
@@ -113,25 +127,48 @@ def main():
         cost = route_cost(edges, path)
         route = ' -> '.join(str(n) for n in path)
         result = result = (f'Goal reached: Node {goal}   |   Nodes created: {created}   |   Number of moves: {len(path) - 1}   |   Total cost: {cost:g} \nFinal route: {route}')
+        if visit_every:
+            order = []
+            for n in path: # Goals in the order they were first reached
+                if n in goals and n not in order:
+                    order.append(n)
+            missed = [d for d in dict.fromkeys(destinations) if d not in order] # Any unreachable destination will be added here
+            result += f"\nGoals visited (in order): {' -> '.join(map(str, order))}"
+            if missed:
+                result += f"\nGoals NOT reachable: {', '.join(map(str, missed))}"
+
+    # Works out which node gets the origin (blue) outline and which get the destination (red) outline while a given leg is searched
+    def node_role(leg):
+        if not visit_every: # Normal mode keeps the original origin and every destination outlined
+            return origin, goals
+        reached = set(legs[1:leg + 1]) # Every leg after the first starts at the goal reached by the leg before it
+        return legs[leg], goals - reached # Current origin is blue, destinations not yet reached stay red, reached ones go back to normal
 
     # Animating the search step by step
     def frames():
-        explored, frontier, iteration = set(), set(), 1
-        yield explored, frontier, None, f'{method}: {len(events)} expansions to show...', False
-        for step, (node, neighbours) in enumerate(events, 1):  # Loops over all expansions and numbers them
-            if node == origin and node in explored: # Resets the graph if the search gets restarted (used for CUS2/IDA* search)
+        explored, frontier, iteration, current_leg = set(), set(), 1, None
+        yield explored, frontier, None, f'{method}: {len(events)} expansions to show...', False, node_role(0)
+        for step, (leg, node, neighbours) in enumerate(events, 1):  # Loops over all expansions and numbers them
+            if leg != current_leg: # A new leg has started (new origin), so begin again with a clean graph
+                explored.clear()
+                frontier.clear()
+                iteration = 1
+                current_leg = leg
+            elif node == legs[leg] and node in explored: # Resets the graph if the search gets restarted (used for CUS2/IDA* search)
                 explored.clear()
                 frontier.clear()
                 iteration += 1
             explored.add(node)
             frontier.update(neighbours) # Sets neighbour nodes as frontier
+            leg_text = f'Leg {leg + 1} of {len(legs)} (from node {legs[leg]}) - ' if visit_every else '' # Only shown when --all is used
+            roles = node_role(leg) # Origin and destination to outline during this leg
 
             # Yield used as an alternative for return, remembers previous state before pausing (important to keep track). Also has iteration for IDA* search
-            yield explored, frontier, node, f'Step {step} of {len(events)}: exploring node {node}' + (f'(iteration {iteration})' if iteration > 1 else ''), False
-        yield explored, frontier, None, 'SEARCH COMPLETED! \n\n' + performance + '\n' + result, True
+            yield explored, frontier, node, leg_text + f'Step {step} of {len(events)}: exploring node {node}' + (f' (iteration {iteration})' if iteration > 1 else ''), False, roles
+        yield explored, frontier, None, 'SEARCH COMPLETED! \n\n' + performance + '\n' + result, True, (origin, goals) # Once finished, outline the real origin and every destination again
 
     def draw(frame):
-        explored, frontier, current, message, finished = frame # Unpacks information as a frame
+        explored, frontier, current, message, finished, (leg_origin, leg_goals) = frame # Unpacks information as a frame
         canvas.delete('all') # Clear canvas before drawing graph
 
         # Decide canvas size, set node position and edges
@@ -150,7 +187,7 @@ def main():
         for x, y, cost in labels:
             draw_label(canvas, x, y, cost)
 
-        # Draw the nodes and fill according to node type
+        # Determines fill colour according to node type
         for node, (x, y) in pos.items():
             if finished and node in path:
                 fill = FINAL
@@ -164,16 +201,17 @@ def main():
                 fill = UNEXPLORED
 
             # Setting the outline for nodes
-            if node == origin:
+            if node == leg_origin: # Origin of the leg being searched (the real origin when --all is off)
                 outline = ORIGIN_OUTLINE
                 outline_width = 4
-            elif node in goals:
+            elif node in leg_goals: # Destination of the leg being searched
                 outline = GOAL_OUTLINE
                 outline_width = 4
             else:
                 outline = NORMAL_OUTLINE
                 outline_width = 1.5
 
+            # Draws the node
             canvas.create_oval(x - R, y - R, x + R, y + R, fill=fill, outline=outline, width=outline_width)
             canvas.create_text(x, y, text=str(node), font=('Arial', 10, 'bold'))
 
@@ -191,7 +229,7 @@ def main():
 
     # Creates graph window
     root = tk.Tk()
-    root.title(f'{filename} - {method}')
+    root.title(f'{filename} - {method}' + (' (all destinations)' if visit_every else ''))
     root.geometry('1024x768')
     root.minsize(760, 520)
     legend_font = tkfont.Font(family='Arial', size=9)

@@ -108,7 +108,7 @@ def draw(canvas, nodes, edges, origin, destinations):
             draw_node(canvas, node_id, position)
 
 if __name__ == '__main__':
-    if len(sys.argv) != 2: # Requires one argument only atm, just filename as this is just to visualise graph
+    if len(sys.argv) != 2: # Requires one argument only (filename) as this is just to visualise graph
         print('Usage: python testgui.py <filename>')
         sys.exit(1)
 

@@ -1,7 +1,6 @@
 import math
 import sys
 import heapq
-from collections import deque
 
 # ---------- HELPER FUNCTIONS ----------
 
@@ -95,14 +94,14 @@ def a_star(nodes: dict, edges: dict, origin: int, destinations: list):
     return None, created, []
 
 # ---------- CUS2: IDA* (ITERATIVE DEEPENING A*) ----------
-""" Works by setting a limit on the score threshold, f(n) = g(n) + h(n). If a goal is not found within the limit set, raise limit and search again
-    IMPORTANT NOTE: THIS SEARCH METHOD IGNORES COST UNLIKE NORMAL A* SINCE IT ONLY TRIES TO FIND SHORTEST PATH, NOT SHORTEST + LOWEST COST """
+""" Works by setting a limit on the score threshold, f(n) = g(n) + h(n). If a goal is not found within the limit set, raise limit and search again.
+    g = number of moves so far, h = estimated number of moves remaining (straight-line distance / longest edge)
+    Tie-breaking: fewest moves -> lowest cost -> smallest node number"""
 
 def cus2(nodes: dict, edges: dict, origin: int, destinations: list):
     goals = set(destinations)
     sys.setrecursionlimit(max(sys.getrecursionlimit(), len(nodes) + 100)) # Setting limit for recursion (path cannot be longer than no of nodes)
 
-    # Heuristics for the search
     goal_points = [nodes[g] for g in destinations if g in nodes]  # Sets coordinates (x, y) of every goal
 
     # Loop through all edges to find the longest edge (cost not used since this proritises SHORTEST path)
@@ -112,40 +111,45 @@ def cus2(nodes: dict, edges: dict, origin: int, destinations: list):
             if start in nodes and end in nodes:
                 longest_edge = max(longest_edge, math.dist(nodes[start], nodes[end]))
 
-    h_cache = {}  # Stores h value so does not need recalculation over multiple iterations
-
+    # Calculating heuristic
     def h(node: int) -> int:
-        if node not in h_cache:
-            if node in nodes and goal_points and longest_edge > 0:
-                nearest = min(math.dist(nodes[node], point) for point in goal_points)
-                h_cache[node] = math.ceil(nearest / longest_edge - 1e-9) # Gets edges that are available to move (- 1e-9 prevents float rounding errors)
-            else:
-                h_cache[node] = 0  # If there is no information (no coordinates, no goal found or no length edge), do not move from the current node
-        return h_cache[node]
+        if node in nodes and goal_points and longest_edge > 0:
+            nearest = min(math.dist(nodes[node], point) for point in goal_points) # Straight-line distance to the nearest goal/destination
+            return math.ceil(nearest / longest_edge - 1e-9) # Gets edges that are available to move (- 1e-9 prevents float rounding errors)
+        return 0 # If there is no information, do not move from current node
 
     # Shared search state across iterations
     path = [origin] # Returns currently explored branch
     on_path = {origin} # Check if the node is in current path
     created = 0 # Total search-tree nodes created across all iterations (cumulative)
+    best_cost = math.inf # Cost of cheapest path so far (inf so any number will be smaller)
+    best_path = None # No path until a goal is reached
 
-    def limited_dfs(g: int, limit: int):
-        """ Depth-first search from the last node of 'path' while not going past f = limit, returns (found, number)
-            found -> True if a goal was reached (path then holds the answer)
-            number -> if found, f of the goal; if not, the smallest f that was cut off """
-        nonlocal created # Ensures the variable is updated rather than creating a new one
+    def limited_dfs(g: int, cost_so_far: float, limit: int):
+        """ Depth-first search from the last node of 'path' while not going past f = limit, returns the smallest f that was cut off
+            g - moves made so far, cost_so_far is the total accumulated cost
+            Goals reached are stored in best_cost/best_path """
+        nonlocal created, best_cost, best_path # Ensures the variable are updated rather than creating new ones
         node = path[-1] # Current node is last one on path
         f = g + h(node) # Estimate = moves-so-far + estimated moves-to-go
 
         # Checks if the threshold is hit (no goal found) or if goal is found
         if f > limit:
-            return False, f
+            return f
         if node in goals:
-            return True, f
+            if cost_so_far < best_cost: # Strictly cheaper only, so an equally cheap path found later does not replace the first one
+                best_cost = cost_so_far
+                best_path = list(path)
+            return math.inf # No need to go past a goal
 
-        # Tracks smallest f value
+        # Tracks smallest f value rejected under this node
         smallest_cut = math.inf
-        for neighbour, _cost in sorted_neighbours(edges, node):
+        for neighbour, cost in sorted_neighbours(edges, node):
             if neighbour in on_path: # Skips nodes which are already on the search branch (prevent loop on two-way edges)
+                continue
+
+            new_cost = round(cost_so_far + cost, 9)
+            if new_cost >= best_cost: # Skip if the cost is higher than lowest
                 continue
 
             # Creates new search tree node
@@ -153,28 +157,39 @@ def cus2(nodes: dict, edges: dict, origin: int, destinations: list):
             path.append(neighbour)
             on_path.add(neighbour)
 
-            # Increases the recursion threshold (1 more step)
-            found, value = limited_dfs(g + 1, limit)
-            if found:
-                return True, value
+            smallest_cut = min(smallest_cut, limited_dfs(g + 1, new_cost, limit)) # Updates the smallest f value after increasing recursion by 1
 
             # Remove path without goal
             path.pop()
             on_path.remove(neighbour)
-            smallest_cut = min(smallest_cut, value)
 
-        return False, smallest_cut # End-case if no goal was found, return smallest F
+        return smallest_cut # End-case if no goal was found, return smallest f value refused
 
     # Iterations
     limit = h(origin) # First limit will be h(origin)
     while limit != math.inf: # Check for infinite limit (no solution)
         created += 1  # Rebuilds search tree on every iteration, restarts search with 0 moves
-        found, value = limited_dfs(0, limit)
-        if found:
-            return path[-1], created, list(path) # Saves successful path so future iterations DO NOT overwrite it
-        limit = value # Raise budget to the smallest f value rejected
+        next_limit = limited_dfs(0, 0, limit)
+        if best_path is not None: # This iteration reached a goal and has fewest moves so far
+            return best_path[-1], created, best_path
+        limit = next_limit # Raise budget to the smallest f value rejected
 
     return None, created, [] # Usually skipped if there is a solution to the test case, will only reach here if NO SOLUTIONS are available
+
+# Toggle to make the agent visit all destinations
+def visit_all(algorithm):
+    def run(nodes, edges, origin, destinations): # Overwrites the run code
+        remaining, path, created, goal = set(destinations), [origin], 0, None
+        while remaining: # Keeps algorithm running until all destinations are visited
+            found, count, leg = algorithm(nodes, edges, origin, sorted(remaining)) # Runs the search from currento rigin
+            created += count
+            if found is None: # Rest of the nodes are unreachable, stop searching
+                break
+            path += leg[1:] # Leg starts at the old origin so skip it
+            remaining.discard(found) # Removes found goal from the list
+            origin = goal = found # Update the goal reached to be new origin
+        return goal, created, (path if goal is not None else [])
+    return run
 
 # ---------- METHODS DICTIONARY ----------
 methods: dict = { # Used for listing all methods in search.py
