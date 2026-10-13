@@ -176,9 +176,109 @@ def cus2(nodes: dict, edges: dict, origin: int, destinations: list):
 
     return None, created, [] # Usually skipped if there is a solution to the test case, will only reach here if NO SOLUTIONS are available
 
+# ---------- BFS: BREADTH-FIRST SEARCH ----------
+""" Frontier is a queue (FIFO), always expanding the shallowest node first.
+    Neighbours are added in ascending order to satisfy tie-breaking.
+"""
+
+def bfs(nodes: dict, edges: dict, origin: int, destinations: list):
+    goals = set(destinations)
+
+    created = 1  # root node counts as created
+    expanded = set()
+
+    frontier = deque([(origin, None, 0.0)])
+
+    while frontier:
+        record = frontier.popleft()
+        node, _parent, g = record
+
+        if node in expanded:
+            continue
+
+        if node in goals:
+            return node, created, path_from(record)
+
+        expanded.add(node)
+
+        for neighbour, cost in sorted_neighbours(edges, node):
+            if neighbour in expanded:
+                continue
+
+            created += 1
+            frontier.append((neighbour, record, g + cost))
+
+    return None, created, []
+
+# ---------- GBFS: GREEDY BEST-FIRST SEARCH ----------
+""" Frontier is a priority queue ordered only by h(n).
+    h(n) is the Euclidean distance to the nearest destination.
+"""
+
+def gbfs(nodes: dict, edges: dict, origin: int, destinations: list):
+    goals = set(destinations)
+
+    goal_points = [nodes[g] for g in destinations if g in nodes]
+
+    h_cache = {}
+
+    def h(node: int) -> float:
+        if node not in h_cache:
+            if node in nodes and goal_points:
+                h_cache[node] = min(
+                    math.dist(nodes[node], point)
+                    for point in goal_points
+                )
+            else:
+                h_cache[node] = 0.0
+
+        return h_cache[node]
+
+    counter = 0
+    created = 1
+    expanded = set()
+
+    root = (origin, None, 0.0)
+
+    frontier = [(h(origin), origin, counter, root)]
+
+    while frontier:
+        _h, node, _count, record = heapq.heappop(frontier)
+
+        if node in expanded:
+            continue
+
+        if node in goals:
+            return node, created, path_from(record)
+
+        expanded.add(node)
+
+        g = record[2]
+
+        for neighbour, cost in sorted_neighbours(edges, node):
+            if neighbour in expanded:
+                continue
+
+            created += 1
+            counter += 1
+
+            heapq.heappush(
+                frontier,
+                (
+                    h(neighbour),
+                    neighbour,
+                    counter,
+                    (neighbour, record, g + cost)
+                )
+            )
+
+    return None, created, []
+
 # ---------- METHODS DICTIONARY ----------
 methods: dict = { # Used for listing all methods in search.py
     'DFS': dfs,
     'AS': a_star,
-    'CUS2': cus2
+    'CUS2': cus2,
+    'BFS': bfs,
+    'GBFS': gbfs
 }
