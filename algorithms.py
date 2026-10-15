@@ -1,13 +1,14 @@
 import math
 import sys
 import heapq
+from collections import deque
 
 # ---------- HELPER FUNCTIONS ----------
 
 # any shared function from your code should be here, helps make it more organised
 
 def sorted_neighbours(edges: dict, node: int) -> list:
-    return sorted(edges.get(node, []), key = lambda x: x[0]) # Sorts node neighbours in ascending order (satifies the sorting requirement)
+    return sorted(edges.get(node, []), key = lambda x: x[0]) # Sorts node neighbours in ascending order (satisfies the sorting requirement)
 
 def path_from(record) -> list:
     path = []
@@ -18,8 +19,9 @@ def path_from(record) -> list:
     return path
 
 # ---------- DFS: DEPTH-FIRST SEARCH ----------
-""" Frontier is a stack (LIFO), always expanding the deepest node. Neighbours are pushed in DESCENDING order so that the SMALLEST neighbour
-    is expanded first, thus the ascending-order tie-breaker. Goal test when a node is expanded. Not optimal nor guaranteed shortest."""
+""" Frontier is a stack (LIFO), always expanding the deepest node. Neighbours are pushed in DESCENDING order so that the SMALLEST 
+    neighbour is expanded first, thus the ascending-order tie-breaker. Goal test when a node is expanded.
+    Not optimal nor guaranteed shortest."""
 
 def dfs(nodes: dict, edges: dict, origin: int, destinations: list):
     goals = set(destinations)
@@ -45,10 +47,110 @@ def dfs(nodes: dict, edges: dict, origin: int, destinations: list):
 
     return None, created, [] # frontier exhausted, no dest
 
+# ---------- BFS: BREADTH-FIRST SEARCH ----------
+""" Frontier is a queue (FIFO), always expanding the shallowest node first so the path found has the fewest moves but not lowest cost.
+    Neighbours are added in ascending order to satisfy tie-breaking. Goal is tested when a node is expanded.
+    Tie-break: shallowest -> smallest node number -> earliest added (queue order).
+"""
+
+def bfs(nodes: dict, edges: dict, origin: int, destinations: list):
+    goals = set(destinations)
+
+    created = 1  # root node counts as created
+    expanded = set() # nodes already expanded, prevent looping on two way edge
+
+    frontier = deque([(origin, None, 0.0)]) # queue of (node, parent record, cost so far), oldest entry is expanded first
+
+    while frontier:
+        record = frontier.popleft() # takes shallowest node
+        node, _parent, g = record
+
+        if node in expanded: # node added to the queue twice before expanding
+            continue
+
+        if node in goals:
+            return node, created, path_from(record)
+
+        expanded.add(node)
+
+        for neighbour, cost in sorted_neighbours(edges, node): # ascending order, smallest neighbour joins queue first
+            if neighbour in expanded:
+                continue
+
+            created += 1
+            frontier.append((neighbour, record, g + cost)) # join back of queue
+
+    return None, created, [] # queue exhausted so no destination can be reached.
+
+# ---------- GBFS: GREEDY BEST-FIRST SEARCH ----------
+""" Frontier is a priority queue ordered only by h(n) where h(n) is the Euclidean distance to the nearest destination.
+    Cost so far is ignored so it is fast but not cost-optimal or fewest moves.
+    Tie-break: lowest h -> smallest node number -> earliest added (counter).
+"""
+
+def gbfs(nodes: dict, edges: dict, origin: int, destinations: list):
+    goals = set(destinations)
+
+    goal_points = [nodes[g] for g in destinations if g in nodes] # coordinates of every destination
+
+    h_cache = {}
+
+    def h(node: int) -> float:
+        if node not in h_cache:
+            if node in nodes and goal_points:
+                h_cache[node] = min(
+                    math.dist(nodes[node], point)
+                    for point in goal_points
+                ) # distance to the nearest destination
+            else:
+                h_cache[node] = 0.0 # no coordinates so no guide
+
+        return h_cache[node]
+
+    counter = 0 # insertion order (final tie-breaker)
+    created = 1 # root node counts as created
+    expanded = set() # nodes already expanded, prevent looping on two-way edge
+
+    root = (origin, None, 0.0)
+
+    frontier = [(h(origin), origin, counter, root)] # heap items: (h, node number, counter, record)
+
+    while frontier:
+        _h, node, _count, record = heapq.heappop(frontier) # lowest h first
+
+        if node in expanded: # node added to heap twice before expanded (stale)
+            continue
+
+        if node in goals: # goal test during expansion
+            return node, created, path_from(record)
+
+        expanded.add(node)
+
+        g = record[2] # cost so far (tracked only to show on output)
+
+        for neighbour, cost in sorted_neighbours(edges, node):
+            if neighbour in expanded:
+                continue
+
+            created += 1
+            counter += 1
+
+            heapq.heappush(
+                frontier,
+                (
+                    h(neighbour),
+                    neighbour,
+                    counter,
+                    (neighbour, record, g + cost)
+                )
+            )
+
+    return None, created, [] # heap exhausted, no destination can be reached.
+
 # ---------- AS: A* SEARCH ----------
 """ Frontier is a priority queue ordered by f(n) = g(n) + h(n), where g = cost so far, and h = straight-line (euclidean) distance to the
     NEAREST destination to support multiple destinations. Goal test when a node is expanded/popped. Guarantees cheapest path so long h is not
-    estimated.
+    overestimated.
     Tie-break: lowest f -> smallest node number -> earliest added (counter). """
 
 def a_star(nodes: dict, edges: dict, origin: int, destinations: list):
@@ -104,7 +206,7 @@ def cus2(nodes: dict, edges: dict, origin: int, destinations: list):
 
     goal_points = [nodes[g] for g in destinations if g in nodes]  # Sets coordinates (x, y) of every goal
 
-    # Loop through all edges to find the longest edge (cost not used since this proritises SHORTEST path)
+    # Loop through all edges to find the longest edge (cost not used since this prioritises SHORTEST path)
     longest_edge = 0.0 
     for start, neighbours in edges.items():
         for end, _cost in neighbours:
@@ -181,11 +283,11 @@ def visit_all(algorithm):
     def run(nodes, edges, origin, destinations): # Overwrites the run code
         remaining, path, created, goal = set(destinations), [origin], 0, None
         while remaining: # Keeps algorithm running until all destinations are visited
-            found, count, leg = algorithm(nodes, edges, origin, sorted(remaining)) # Runs the search from currento rigin
+            found, count, segment = algorithm(nodes, edges, origin, sorted(remaining)) # Runs the search from current origin
             created += count
             if found is None: # Rest of the nodes are unreachable, stop searching
                 break
-            path += leg[1:] # Leg starts at the old origin so skip it
+            path += segment[1:] # Segment starts at the old origin so skip it
             remaining.discard(found) # Removes found goal from the list
             origin = goal = found # Update the goal reached to be new origin
         return goal, created, (path if goal is not None else [])
@@ -194,6 +296,8 @@ def visit_all(algorithm):
 # ---------- METHODS DICTIONARY ----------
 methods: dict = { # Used for listing all methods in search.py
     'DFS': dfs,
+    'BFS': bfs,
+    'GBFS': gbfs,
     'AS': a_star,
     'CUS2': cus2
 }

@@ -74,10 +74,10 @@ def main():
         for n in path: # Goals in the order they were first reached
             if n in destinations and n not in order:
                 order.append(n)
-        missed = [d for d in dict.fromkeys(destinations) if d not in order] # # Any unreachable destination will be added here
+        missed = [d for d in dict.fromkeys(destinations) if d not in order] # Any unreachable destination will be added here
         print(f"\nGoals visited (in order): {' -> '.join(map(str, order))}")
         if missed:
-            print(f"Goals NOT reachable: {', '.join(map(str, missed))}")
+            print(f"Goals not reached (no route from last goal visited): {', '.join(map(str, missed))}")
     print(f"\nGoal reached: Node {goal}")
     print(f"Nodes created: {node_count}")
     print(f"Number of moves: {len(path) - 1}" )

@@ -92,29 +92,29 @@ def main():
     goal, created, path, time_taken, memory_text = run_measured(algorithm, nodes, edges, origin, destinations)
 
     # ---------- RECORDING THE SEARCH FOR GUI PLAYBACK ----------
-    events = [] # Holds an entry for each expanded node: (leg number, node, neighbours)
-    legs = [] # Start node of each leg (usually one leg or one per destination reached when --all is used)
+    events = [] # Holds an entry for each expanded node: (segment number, node, neighbours)
+    segments = [] # Start node of each segment (usually one segment or one per destination reached when --all is used)
     class WatchedEdges(dict): # Watches over the expanded edges to record expansion
         def __getitem__(self, node):
             neighbours = super().__getitem__(node) # Looks up the dictionary record
-            events.append((len(legs) - 1, node, [n for n, _ in neighbours])) # Records the event under the current leg
+            events.append((len(segments) - 1, node, [n for n, _ in neighbours])) # Records the event under the current segment
             return neighbours
 
         # Overrides get to use the code above instead of using normal implementation
         def get(self, node, default = None): 
             return self[node] if node in self else default
 
-    # Notes down where each leg starts so the playback knows when a new leg begins
-    def mark_legs(search):
+    # Notes down where each segment starts so the playback knows when a new segment begins
+    def mark_segment(search):
         def run(nodes, edges, start, dests):
-            legs.append(start) # Events recorded from here on belong to this leg
+            segments.append(start) # Events recorded from here on belong to this segment
             return search(nodes, edges, start, dests)
         return run
 
     # Runs the search algorithm
-    recorder = mark_legs(methods[method])
+    recorder = mark_segment(methods[method])
     if visit_every:
-        recorder = visit_all(recorder) # Each leg is marked, then the goal reached becomes the next origin
+        recorder = visit_all(recorder) # Each segment is marked, then the goal reached becomes the next origin
     recorder(nodes, WatchedEdges(edges), origin, destinations)
     path_edges = set(zip(path, path[1:])) # Edges used by the final path
 
@@ -126,7 +126,7 @@ def main():
     else:
         cost = route_cost(edges, path)
         route = ' -> '.join(str(n) for n in path)
-        result = result = (f'Goal reached: Node {goal}   |   Nodes created: {created}   |   Number of moves: {len(path) - 1}   |   Total cost: {cost:g} \nFinal route: {route}')
+        result = (f'Goal reached: Node {goal}   |   Nodes created: {created}   |   Number of moves: {len(path) - 1}   |   Total cost: {cost:g} \nFinal route: {route}')
         if visit_every:
             order = []
             for n in path: # Goals in the order they were first reached
@@ -135,40 +135,40 @@ def main():
             missed = [d for d in dict.fromkeys(destinations) if d not in order] # Any unreachable destination will be added here
             result += f"\nGoals visited (in order): {' -> '.join(map(str, order))}"
             if missed:
-                result += f"\nGoals NOT reachable: {', '.join(map(str, missed))}"
+                result += f"\nGoals not reached (no route from last goal visited): {', '.join(map(str, missed))}"
 
-    # Works out which node gets the origin (blue) outline and which get the destination (red) outline while a given leg is searched
-    def node_role(leg):
+    # Works out which node gets the origin (blue) outline and which get the destination (red) outline while a given segment is searched
+    def node_role(segment):
         if not visit_every: # Normal mode keeps the original origin and every destination outlined
             return origin, goals
-        reached = set(legs[1:leg + 1]) # Every leg after the first starts at the goal reached by the leg before it
-        return legs[leg], goals - reached # Current origin is blue, destinations not yet reached stay red, reached ones go back to normal
+        reached = set(segments[1:segment + 1]) # Every segment after the first starts at the goal reached by the segment before it
+        return segments[segment], goals - reached # Current origin is blue, destinations not yet reached stay red, reached ones go back to normal
 
     # Animating the search step by step
     def frames():
-        explored, frontier, iteration, current_leg = set(), set(), 1, None
+        explored, frontier, iteration, current_segment = set(), set(), 1, None
         yield explored, frontier, None, f'{method}: {len(events)} expansions to show...', False, node_role(0)
-        for step, (leg, node, neighbours) in enumerate(events, 1):  # Loops over all expansions and numbers them
-            if leg != current_leg: # A new leg has started (new origin), so begin again with a clean graph
+        for step, (segment, node, neighbours) in enumerate(events, 1):  # Loops over all expansions and numbers them
+            if segment != current_segment: # A new segment has started (new origin), so begin again with a clean graph
                 explored.clear()
                 frontier.clear()
                 iteration = 1
-                current_leg = leg
-            elif node == legs[leg] and node in explored: # Resets the graph if the search gets restarted (used for CUS2/IDA* search)
+                current_segment = segment
+            elif node == segments[segment] and node in explored: # Resets the graph if the search gets restarted (used for CUS2/IDA* search)
                 explored.clear()
                 frontier.clear()
                 iteration += 1
             explored.add(node)
             frontier.update(neighbours) # Sets neighbour nodes as frontier
-            leg_text = f'Leg {leg + 1} of {len(legs)} (from node {legs[leg]}) - ' if visit_every else '' # Only shown when --all is used
-            roles = node_role(leg) # Origin and destination to outline during this leg
+            segment_text = f'Segment {segment + 1} of {len(segments)} (from node {segments[segment]}) - ' if visit_every else '' # Only shown when --all is used
+            roles = node_role(segment) # Origin and destination to outline during this segment
 
             # Yield used as an alternative for return, remembers previous state before pausing (important to keep track). Also has iteration for IDA* search
-            yield explored, frontier, node, leg_text + f'Step {step} of {len(events)}: exploring node {node}' + (f' (iteration {iteration})' if iteration > 1 else ''), False, roles
+            yield explored, frontier, node, segment_text + f'Step {step} of {len(events)}: exploring node {node}' + (f' (iteration {iteration})' if iteration > 1 else ''), False, roles
         yield explored, frontier, None, 'SEARCH COMPLETED! \n\n' + performance + '\n' + result, True, (origin, goals) # Once finished, outline the real origin and every destination again
 
     def draw(frame):
-        explored, frontier, current, message, finished, (leg_origin, leg_goals) = frame # Unpacks information as a frame
+        explored, frontier, current, message, finished, (segment_origin, segment_goals) = frame # Unpacks information as a frame
         canvas.delete('all') # Clear canvas before drawing graph
 
         # Decide canvas size, set node position and edges
@@ -201,10 +201,10 @@ def main():
                 fill = UNEXPLORED
 
             # Setting the outline for nodes
-            if node == leg_origin: # Origin of the leg being searched (the real origin when --all is off)
+            if node == segment_origin: # Origin of the segment being searched (the real origin when --all is off)
                 outline = ORIGIN_OUTLINE
                 outline_width = 4
-            elif node in leg_goals: # Destination of the leg being searched
+            elif node in segment_goals: # Destination of the segment being searched
                 outline = GOAL_OUTLINE
                 outline_width = 4
             else:
