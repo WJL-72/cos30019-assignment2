@@ -1,0 +1,8 @@
+Nodes:
+1: (1,2)
+Edges:
+
+Origin:
+1
+Destinations:
+1
