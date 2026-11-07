@@ -1,5 +1,5 @@
 """
-clean.py - turn the long-format SCATS file into one clean flow series per SCATS site
+cleaning.py - turn the long-format SCATS file into one clean flow series per SCATS site
 
 Input: processed_data.csv   (output of data_processing.py; one row per location / day / 15-min slot)
 Output: site_flows.csv      (one row per site/day/slot, 40 sites x 31 days x 96 slots)
@@ -34,8 +34,8 @@ def load(path: str) -> pd.DataFrame:
     return df
 
 
-def drop_duplicates(df: pd.DataFrame) -> pd.DataFrame:
-    return df.drop_duplicates(["scats_num", "location_name", "date", "interval"])
+def merge_detectors(df: pd.DataFrame) -> pd.DataFrame:
+    return df.groupby(["scats_num", "location_name", "date", "time", "interval"], as_index=False)["volume"].sum()
 
 
 def drop_sparse_locations(df: pd.DataFrame) -> pd.DataFrame:
@@ -79,7 +79,7 @@ def zero_run_length(flow: pd.Series) -> pd.Series:
 
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:
-    df = drop_sparse_locations(drop_duplicates(df))
+    df = drop_sparse_locations(merge_detectors(df))
     grid = full_grid(site_totals(df))
 
     # Rule 1: incomplete site-days are unusable
@@ -98,7 +98,7 @@ def clean(df: pd.DataFrame) -> pd.DataFrame:
 def summarise(raw: pd.DataFrame, out: pd.DataFrame) -> None:
     per_day = out.groupby(SITE_DAY).agg(complete=("complete", "first"))
     print(f"input rows            : {len(raw):,}")
-    print(f"duplicate rows dropped: {len(raw) - len(drop_duplicates(raw)):,}")
+    print(f"rows merged           : {len(raw) - len(merge_detectors(raw)):,}")
     print(f"output rows           : {len(out):,}  ({out['scats_num'].nunique()} sites x "
           f"{out['date'].nunique()} days x {out['interval'].nunique()} slots)")
     print(f"complete site-days    : {int(per_day['complete'].sum()):,} of {len(per_day):,}")
