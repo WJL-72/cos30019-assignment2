@@ -1,0 +1,2 @@
+model,parameters,epochs_run,best_epoch,train_seconds,predict_ms_per_1000_windows
+lstm,49985,42,32,258.7,23.91
