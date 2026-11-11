@@ -4,6 +4,7 @@ Usage:
 
 Input:
     data_splitting.py (functions + windows.npz file)
+    model_utils.py (loading, scoring and saving that is shared with the other models)
 
 Outputs:
     models/lstm.keras - trained LSTM model (travel_time.py loads this file)
@@ -19,15 +20,10 @@ The model takes (N, LOOKBACK, 1) as input and gives one scaled value (0-1) as ou
 import sys
 import time
 from pathlib import Path
-import numpy as np
 import pandas as pd
-from data_splitting import load_windows, to_vehicles, OUTPUT_FILE as WINDOWS_FILE
-from random_forest import metrics # Same metrics function as the random forest so the results can be compared
+from model_utils import load_data, evaluate, save_results
 
 MODEL_FILE = Path("models/lstm.keras")
-PREDICTIONS_FILE = Path("results/lstm_predictions.csv")
-METRICS_FILE = Path("results/lstm_metrics.csv")
-SITE_METRICS_FILE = Path("results/lstm_site_metrics.csv")
 HISTORY_FILE = Path("results/lstm_history.csv")
 LOSS_PLOT_FILE = Path("results/lstm_loss.png")
 TRAINING_FILE = Path("results/lstm_training.csv")
@@ -91,15 +87,7 @@ def main():
         sys.exit(1)
 
     # Loads the windows file
-    try:
-        d = load_windows(WINDOWS_FILE)
-    except FileNotFoundError:
-        print(f"Error: file '{WINDOWS_FILE}' not found!")
-        print("Run data_splitting.py first to create it")
-        sys.exit(1)
-    except Exception as exc:
-        print(f"Error while reading '{WINDOWS_FILE}': {exc}")
-        sys.exit(1)
+    d = load_data()
 
     keras.utils.set_random_seed(RANDOM_STATE) # Sets the seed for python, numpy and the backend
     lookback = int(d["lookback"])
@@ -120,41 +108,27 @@ def main():
     best_epoch = int(history["val_loss"].idxmin()) + 1 # idxmin starts from 0 but epochs start from 1
     print(f"Done in {train_seconds:.1f} seconds, {len(history)} epochs, best epoch {best_epoch}")
 
-    # Predicts and turns everything back into vehicles per 15 minutes
-    results, rows = [], []
-    predict_seconds, predict_count = 0.0, 0
-    for period in ("val", "test"):
-        site = d[f"site_{period}"]
-        actual = to_vehicles(d[f"y_{period}"].astype(float), site, d) # Actual flow from the dataset
+    # Predicts for one period and keeps count of how long it takes (used for the training info below)
+    timing = {"seconds": 0.0, "windows": 0}
+    def predict(period):
         t0 = time.time()
-        scaled = np.ravel(model.predict(d[f"X_{period}"], batch_size=1024, verbose=0))
-        predict_seconds += time.time() - t0
-        predict_count += len(scaled)
-        lstm = to_vehicles(scaled.astype(float), site, d) # Predicted flow
-        previous = to_vehicles(d[f"X_{period}"][:, -1, 0].astype(float), site, d) # Baseline - predicts the last reading it was given (model SHOULD ALWAYS beat this)
-        results.append({"model": "lstm", "period": period, **metrics(actual, lstm)})
-        results.append({"model": "previous_reading", "period": period, **metrics(actual, previous)})
-        rows.append(pd.DataFrame({"period": period, "scats_num": d["sites"][site], "timestamp": d["timeline"][d[f"t_{period}"]],
-                                  "actual": actual.round(1), "predicted": lstm.round(1)}))
-    results = pd.DataFrame(results) # Converts into a metric table
-    predictions = pd.concat(rows, ignore_index=True) # Converts into a stacked predictions table
+        scaled = model.predict(d[f"X_{period}"], batch_size=1024, verbose=0)
+        timing["seconds"] += time.time() - t0
+        timing["windows"] += len(scaled)
+        return scaled
 
-    # Test errors for each site - checks which intersection the model works well/badly on
-    test = predictions[predictions["period"] == "test"].assign(error=lambda t: t["predicted"] - t["actual"])
-    site_metrics = test.groupby("scats_num")["error"].agg(windows="size", RMSE=lambda e: np.sqrt((e ** 2).mean()), MAE=lambda e: e.abs().mean(), MSE=lambda e: (e ** 2).mean())
+    # Turns everything back into vehicles per 15 minutes and scores it
+    results, predictions, site_metrics = evaluate(d, predict, "lstm")
 
     # Training info used when comparing the models in the report
     training = pd.DataFrame([{"model": "lstm", "parameters": model.count_params(), "epochs_run": len(history), "best_epoch": best_epoch,
-                              "train_seconds": round(train_seconds, 1), "predict_ms_per_1000_windows": round(predict_seconds / predict_count * 1e6, 2)}])
+                              "train_seconds": round(train_seconds, 1), "predict_ms_per_1000_windows": round(timing["seconds"] / timing["windows"] * 1e6, 2)}])
 
     # Saves everything (results .csv and model)
+    predictions_file, metrics_file, site_metrics_file = save_results("lstm", results, predictions, site_metrics)
     try:
         MODEL_FILE.parent.mkdir(parents=True, exist_ok=True)
-        PREDICTIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
         model.save(MODEL_FILE)
-        predictions.to_csv(PREDICTIONS_FILE, index=False)
-        results.to_csv(METRICS_FILE, index=False)
-        site_metrics.to_csv(SITE_METRICS_FILE)
         history.to_csv(HISTORY_FILE, index_label="epoch")
         training.to_csv(TRAINING_FILE, index=False)
         plotted = plot_history(history)
@@ -165,7 +139,7 @@ def main():
 
     # Prints summary to terminal
     print(results.round(2).to_string(index=False))
-    print(f"Wrote {MODEL_FILE}, {PREDICTIONS_FILE}, {METRICS_FILE}, {SITE_METRICS_FILE}, {HISTORY_FILE}, {TRAINING_FILE}" + (f" and {LOSS_PLOT_FILE}" if plotted else ""))
+    print(f"Wrote {MODEL_FILE}, {predictions_file}, {metrics_file}, {site_metrics_file}, {HISTORY_FILE}, {TRAINING_FILE}" + (f" and {LOSS_PLOT_FILE}" if plotted else ""))
 
 if __name__ == "__main__":
     main()

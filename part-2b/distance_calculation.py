@@ -118,7 +118,7 @@ def write_testcase(path, sites, edges):
             cost = round(d if COST_MODE == "distance" else d / FREE_FLOW_KMH * 60 + INTERSECTION_DELAY_MIN, 3)
             f.write(f"({e['site_a']},{e['site_b']}): {cost}\n")
             f.write(f"({e['site_b']},{e['site_a']}): {cost}\n")
-        f.write("Origin:\n970\nDestinations:\n2200\n") # Placeholder origin and destination
+        f.write("Origin:\n970\nDestinations:\n4032\n") # Placeholder origin and destination
 
 # Draws out the graph using matplotlib, used to visualise the map and see if everything gets mapped properly
 def plot_graph(path, sites, edges):
