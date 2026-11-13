@@ -1,0 +1,2 @@
+model,parameters,epochs_run,best_epoch,train_seconds,predict_ms_per_1000_windows
+gru,37889,42,32,184.6,21.77

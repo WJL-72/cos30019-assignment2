@@ -68,12 +68,7 @@ def data_splitting(series, start, stop):
     target = np.arange(n) + LOOKBACK - 1 + HORIZON # Position of each target in the time line
     y = series[target]
 
-    """
-    Keeps the window if:
-    1. Target is between the set period
-    2. Input is not empty (has flow)
-    3. Target is not empty 
-    """
+    # Keeps the window if target is between the set period, input is not empty (has flow) and target is not empty 
     keep = (target >= start) & (target < stop) & ~np.isnan(X).any(axis=1) & ~np.isnan(y)
     return X[keep], y[keep], target[keep]
 
@@ -117,7 +112,7 @@ def main():
     # Scales each site to 0-1 using the train days only
     train_values = values[:bounds["train"][1]] # Takes until end of training only, prevent validation or test set messing up scaling here
     lo, hi = np.nanmin(train_values, axis=0), np.nanmax(train_values, axis=0)
-    span = np.where(hi - lo == 0, 1.0, hi - lo) # Avoids dividing by zero for a site that never changes
+    span = np.where(hi - lo == 0, 1.0, hi - lo) # Avoids dividing by zero for a site with flow that never changes
     scaled = (values - lo) / span # NaN stays NaN
 
     # Makes the windows for each period and each site
@@ -137,7 +132,7 @@ def main():
     # Saves all output files
     try:
         OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-        # **data unpacks dictionary into arguments (X_train, Y_train,......), other items are site listing, timeline, scaling and settings used (lookback, horizon)
+        # '**data' unpacks dictionary into arguments (X_train, Y_train,..), other items are site listing, timeline, scaling and settings used (lookback, horizon)
         np.savez_compressed(OUTPUT_FILE, **data, sites=np.array(sites), timeline=flows.index.strftime("%Y-%m-%d %H:%M").to_numpy(str),scaler_min=lo, scaler_span=span, lookback=LOOKBACK, horizon=HORIZON)
         counts.to_csv(COUNTS_FILE) # Window counts (for checking)
     except OSError as exc:

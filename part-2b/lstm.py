@@ -21,6 +21,7 @@ import sys
 import time
 from pathlib import Path
 import pandas as pd
+import keras # Use a backend like tensorflow
 from model_utils import load_data, evaluate, save_results
 
 MODEL_FILE = Path("models/lstm.keras")
@@ -65,7 +66,7 @@ def plot_history(history):
     ax.set_xlabel("Epoch")
     ax.set_ylabel("MSE (scaled flow)")
     ax.set_title("LSTM training and validation loss")
-    ax.legend()
+    ax.segmentend()
     ax.grid(True)
     fig.tight_layout()
     fig.savefig(LOSS_PLOT_FILE, dpi=150)
@@ -78,14 +79,7 @@ def main():
         print("Usage: python lstm.py")
         print("No arguments are needed. Any values should be set inside of the file.")
         sys.exit(1)
-
-    try:
-        import keras
-    except ImportError:
-        print("Error: keras (with a backend such as tensorflow) is not installed!")
-        print("Run 'pip install tensorflow' first")
-        sys.exit(1)
-
+        
     # Loads the windows file
     d = load_data()
 

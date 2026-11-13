@@ -46,8 +46,7 @@ def metrics(actual, predicted):
             "MSE": mse,
             "R2": 1 - (error ** 2).sum() / ((actual - actual.mean()) ** 2).sum()}
 
-# Scores a model on the validation and test periods. predict(period) must return the scaled predicted flow of every window of that period (see the top of the file)
-# Returns the metrics table (the model and a 'previous reading' baseline), the predictions table and the test errors of each site
+# Scores a model on the validation and test periods. predict(period) must return the scaled predicted flow of every window of that period
 def evaluate(d, predict, model_name, periods=("val", "test")):
     results, rows = [], []
     for period in periods:
@@ -59,7 +58,7 @@ def evaluate(d, predict, model_name, periods=("val", "test")):
             raise ValueError(f"the model gave {len(scaled)} predictions for the {period} period, but it has {len(actual)} windows")
         predicted = to_vehicles(scaled, site, d) # Predicted flow
 
-        previous = to_vehicles(d[f"X_{period}"][:, -1, 0].astype(float), site, d) # Baseline - predicts the last reading it was given (model SHOULD ALWAYS beat this)
+        previous = to_vehicles(d[f"X_{period}"][:, -1, 0].astype(float), site, d) # Baseline - predicts using the last reading it was given (model SHOULD ALWAYS beat this)
         results.append({"model": model_name, "period": period, **metrics(actual, predicted)})
         results.append({"model": "previous_reading", "period": period, **metrics(actual, previous)})
         rows.append(pd.DataFrame({"period": period, "scats_num": d["sites"][site], "timestamp": d["timeline"][d[f"t_{period}"]],"actual": actual.round(1), "predicted": predicted.round(1)}))

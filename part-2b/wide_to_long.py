@@ -11,19 +11,19 @@ INTERVAL_COLS = [f"V{i:02d}" for i in range(DAILY_INTERVALS)]
 # Converts the spreadsheet into a long table. Raises ValueError if anything goes wrong
 def convert(path) -> pd.DataFrame:
     # 'header=1' lets the program know the header is on 2nd line, SCATS number saved as string so leading 0 remain
-    raw = pd.read_excel(path, sheet_name="Data", header=1, dtype={"SCATS Number": str})
+    raw = pd.read_excel(path, sheet_name="Data", header=1, dtype={"SCATS Number": str}, engine="calamine")
     keys = ["SCATS Number", "Location", "Date"] # Columns to keep
     missing = set(keys + INTERVAL_COLS) - set(raw.columns) # Finds any column names not in the file
 
     if missing:
         raise ValueError(f"Missing column(s): {', '.join(sorted(missing))}")
-    raw["SCATS Number"] = raw["SCATS Number"].str.strip()
+    raw["SCATS Number"] = raw["SCATS Number"].str.strip() # Remove stray spaces around site numbers
     raw["Date"] = pd.to_datetime(raw["Date"]).dt.normalize() # Keeps the date only
  
     long = raw.melt(id_vars=keys, value_vars=INTERVAL_COLS, var_name="interval", value_name="volume") # Converts from wide to long format
-    long["slot"] = long["interval"].str[1:].astype(int) # Changes the interval from 'V01' to '1', possibly easier to work with
+    long["slot"] = long["interval"].str[1:].astype(int) # Changes the interval from 'V01' to '1', easier to work with
  
-    minutes = long["slot"] * INTERVAL_MIN # Start of the interval in minutes, begins at midnight
+    minutes = long["slot"] * INTERVAL_MIN # Start of the interval in minutes beginning from midnight
     long["time"] = (minutes // 60).astype(str).str.zfill(2) + ":" + (minutes % 60).astype(str).str.zfill(2) # Creating the time column
  
     # Order: location -> day -> interval

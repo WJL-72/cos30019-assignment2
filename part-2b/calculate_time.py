@@ -3,7 +3,8 @@ Usage (command line):
     python calculate_time.py <model> "<departure time>" [origin destination ...] (e.g. : python calculate_time.py rf "2006-10-30 08:00" 970 4032)
  
     model: lstm, gru or rf (random forest)
-    departure time: "YYYY-MM-DD HH:MM" on a quarter hour, inside the data (2006-10-01 03:00 to 2006-10-31 23:45)
+    departure time: "YYYY-MM-DD HH:MM", time is rounded down to quarter hour
+                    If datetime is inside data, it uses the actual readings, other dates use the average traffic of that day of the week and time
     origin, destinations: SCATS site numbers, they are written into the graph file (default 970 and 4032)
 
 Usage (from other code, e.g. the GUI or the main program):
@@ -20,7 +21,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from make_windows import load_windows, load_flows , INTERVAL_MIN, INPUT_FILE, OUTPUT_FILE as WINDOWS_FILE
+from make_windows import load_windows, load_flows, INTERVAL_MIN, DAILY_INTERVALS, INPUT_FILE, OUTPUT_FILE as WINDOWS_FILE
 from random_forest import features_from_file
 
 # File paths
@@ -33,8 +34,8 @@ TIMES_OUTPUT = Path("data/processed/edge_times.csv") # Flow, speed and travel ti
 # Variables to set
 DEFAULT_ORIGIN = 970
 DEFAULT_DESTINATIONS = [4032]
-INCLUDE_GUESSED_EDGES = False # False leaves out the edges marked 'guess', same logic as '--edges' in calculate_distance.py
-FLOW_PER_APPROACH = False # False uses the summed flow of the whole site. True divides it by the number of approaches (roads) at the site
+INCLUDE_GUESSED_EDGES = False # False leaves out the edges marked as 'guess', same logic as '--edges' in calculate_distance.py
+FLOW_PER_APPROACH = True # False uses the summed flow of the whole site. True divides it by the number of approaches (roads) at the site
 
 # Flow to speed formula from the conversion sheet: flow (veh/h) = -A x speed^2 + B x speed
 A, B = 1.4648375, 93.75
@@ -48,11 +49,11 @@ class TravelTimeError(Exception):
         super().__init__(message)
         self.hint = hint # Optional second line telling the user what to do
 
-# Assuming the road is below capacity, it takes the larger root of the formula
-def speed_kmh(flow_per_hour):
+# Assumes the road is below capacity so it takes the larger root of the formula
+def calculate_speed(flow_per_hour):
     flow = np.asarray(flow_per_hour, dtype=float) # Turns it into a float array
     discriminant = np.maximum(B * B - 4 * A * flow, 0) # Rearraged formula. The formula has no solution above about 1500 veh/h, so it stops at the peak
-    speed = np.minimum((B + np.sqrt(discriminant)) / (2 * A), SPEED_LIMIT_KMH) # Takes the larger root
+    speed = np.minimum((B + np.sqrt(discriminant)) / (2 * A), SPEED_LIMIT_KMH) # 'B + np.sqrt(discriminant)' takes the larger root
     return np.where(flow <= LIGHT_TRAFFIC_FLOW, SPEED_LIMIT_KMH, speed) # Returns 60 km/h if flow is below 351, otherwise return calculated speed
 
 # Uses the model to predict the site flow (scaled to 0-1), inputs has shape (sites, lookback)
@@ -60,26 +61,48 @@ def predict_scaled(model_name, inputs, time, d):
     path = MODEL_FILES[model_name]
     if not path.exists():
         raise FileNotFoundError(path)
-    if model_name == "rf": # Random forest is built using SciKit
+    if model_name == "rf": # Random forest needs a feature table
         import joblib
         features, _ = features_from_file(inputs, [time] * len(inputs), np.arange(len(inputs)), d["sites"])
         return joblib.load(path).predict(features)
     import keras # LSTM and GRU are ASSUMED to be built using Keras
     return np.ravel(keras.models.load_model(path).predict(inputs[..., np.newaxis], verbose=0))
 
-# Reads the departure time and checks that it can be used. Raises ValueError if not
-def read_time(text, timeline, lookback, horizon):
+# Reads the departure time, any time not on quarter hour is rounded down
+def read_time(text):
     try:
         time = pd.Timestamp(text) # Turns input into timestamp
-    except ValueError:
+    except (ValueError, TypeError):
         raise ValueError(f"'{text}' is not a date and time, use \"YYYY-MM-DD HH:MM\"")
-    if time.minute % INTERVAL_MIN != 0 or time.second != 0: # Minute must be a multiple of quater-hour (15 minutes)
-        raise ValueError(f"'{text}' is not on a quarter hour (for example 08:00, 08:15)")
-    if time not in timeline: # Time is outside of the time set
-        raise ValueError(f"'{text}' is outside the data ({timeline[0]:%Y-%m-%d %H:%M} to {timeline[-1]:%Y-%m-%d %H:%M})")
-    if timeline.get_loc(time) < lookback + horizon - 1: # Must have at least 12 slots before it
-        raise ValueError(f"'{text}' is too early, it needs {lookback} earlier readings (first possible time is {timeline[lookback + horizon - 1]:%Y-%m-%d %H:%M})")
-    return time
+    if pd.isna(time): # Checking for empty string
+        raise ValueError(f"'{text}' is not a date and time, use \"YYYY-MM-DD HH:MM\"")
+    rounded = time.floor(f"{INTERVAL_MIN}min") # Readings only exist every 15 minutes
+    note = f"Departure time {time:%H:%M} rounded down to {rounded:%H:%M}" if rounded != time else None
+    return rounded, note
+
+# True if the readings just before the departure time exist in the data, so the real traffic from dataset can be used
+def history_available(time, timeline, lookback, horizon):
+    return time in timeline and timeline.get_loc(time) >= lookback + horizon - 1
+
+# Average flow of every site for each day of the week and time of day, rows are keyed using (day of week * 96 + slot)
+# Second table (time of day only) acts as fallback for day of week which a site has no reading of
+def average_profile(flows):
+    slot = (flows.index.hour * 60 + flows.index.minute) // INTERVAL_MIN
+    return flows.groupby(flows.index.dayofweek * DAILY_INTERVALS + slot).mean(), flows.groupby(slot).mean()
+
+# Used when the departure time is outside the dataset, the average flow of that weekday is 'lookback' quarter hours before the departure
+# Scaled like the dataset readings. Returns inputs with shape (sites, lookback) and the sites with no input
+def average_inputs(flows, time, d):
+    lookback, horizon = int(d["lookback"]), int(d["horizon"])
+    step = pd.Timedelta(minutes=INTERVAL_MIN) # Defining the 15 minute steps
+    end = time - (horizon - 1) * step # Same position as 'end' in dataset branch
+    stamps = pd.DatetimeIndex([end - (lookback - i) * step for i in range(lookback)]) # Builds 12 timestamps before departure, can cross midnight
+    by_week, by_slot = average_profile(flows) 
+    slots = (stamps.hour * 60 + stamps.minute) // INTERVAL_MIN # Convert timestamp to slot numbers
+    window = by_week.reindex(stamps.dayofweek * DAILY_INTERVALS + slots).to_numpy() # Forms shape (lookback, sites)
+    window = np.where(np.isnan(window), by_slot.reindex(slots).to_numpy(), window) # If day of week reading is missing for a site, use its average for that time of day
+    inputs = ((window - d["scaler_min"]) / d["scaler_span"]).T # Returns the window along with a true/false list which marks sites with a NaN (use 60 kmh)
+    return inputs, np.isnan(inputs).any(axis=1)
 
 # Loads the windows file (settings and scaling), the flows, the sites and the edges. Raises TravelTimeError if any is missing or wrong
 def load_inputs():
@@ -95,20 +118,23 @@ def load_inputs():
         if missing:
             raise ValueError(f"{EDGES_FILE} is missing column(s): {', '.join(sorted(missing))}")
     except FileNotFoundError as exc:
-        raise TravelTimeError(f"file '{exc.filename}' not found!", "Run the scripts that create it first (wide_to_long.py -> calculate_distance.py -> calculate_flow.py -> make_windows.py)")
+        raise TravelTimeError(f"file '{exc.filename}' not found!", "Run the scripts that create it first (python main.py data, or wide_to_long.py -> calculate_distance.py -> calculate_flow.py -> make_windows.py)")
     except Exception as exc:
         raise TravelTimeError(f"could not read the input files: {exc}")
     return d, flows, sites, edges, site_table
 
 # Predicts the flow (vehicles per hour) of every site at the departure time, sites that can not be predicted get NaN
-def predict_site_flows(model_name, flows, time, d):
+def predict_site_flows(model_name, flows, time, d, use_dataset=True):
     lookback, horizon = int(d["lookback"]), int(d["horizon"])
 
-    # Takes the readings that come just before the departure time, flow at actual departure time is NOT checked
-    values = (flows.to_numpy(dtype=float) - d["scaler_min"]) / d["scaler_span"] # Same scaling as in windows.npz
-    end = flows.index.get_loc(time) - (horizon - 1) # Finds departure time and then step back by (horizon - 1) so end is exactly the departure row when horizon = 1
-    inputs = values[end - lookback:end].T # Takes 12 rows before end and gets shape (sites, 12)
-    no_input = np.isnan(inputs).any(axis=1) # Marks sites with a gap in their last 12 readings (hard to predict)
+    if use_dataset:
+        # Takes the readings that come just before the departure time, flow at actual departure time is NOT checked
+        values = (flows.to_numpy(dtype=float) - d["scaler_min"]) / d["scaler_span"] # Same scaling as in windows.npz
+        end = flows.index.get_loc(time) - (horizon - 1) # Finds departure time and then step back by (horizon - 1) so end is exactly the departure row when horizon = 1
+        inputs = values[end - lookback:end].T # Takes 12 rows before end and gets shape (sites, 12)
+        no_flow = np.isnan(inputs).any(axis=1) # Marks sites with a gap in their last 12 readings (hard to predict)
+    else:
+        inputs, no_flow = average_inputs(flows, time, d) # No dataset readings for this date, use the average day of week traffic instead
     inputs = np.nan_to_num(inputs) # Replace NaN with 0 (will be discarded later)
 
     # Uses model to predict then turns scaled numbers to vehicles per hour
@@ -121,13 +147,13 @@ def predict_site_flows(model_name, flows, time, d):
     except Exception as exc:
         raise TravelTimeError(f"prediction with the {model_name} model failed: {exc}")
     
-    flow_per_hour = np.maximum(scaled * d["scaler_span"] + d["scaler_min"], 0) * (60 // INTERVAL_MIN) # Undo the scaling then changes to vehicles per hour
+    flow_per_hour = np.maximum(scaled * d["scaler_span"] + d["scaler_min"], 0) * (60 // INTERVAL_MIN) # Undo the scaling and changes to vehicles per hour
     if FLOW_PER_APPROACH: # Only used when set as TRUE - divide the site flow with number of approaches
         n_approaches = pd.read_csv(INPUT_FILE, usecols=["scats_num", "n_approaches"]).drop_duplicates("scats_num").set_index("scats_num")["n_approaches"]
         flow_per_hour = flow_per_hour / n_approaches.reindex(list(d["sites"])).to_numpy()
 
-    flow_per_hour[no_input] = np.nan # No prediction for these sites
-    return flow_per_hour, no_input
+    flow_per_hour[no_flow] = np.nan # No prediction for these sites
+    return flow_per_hour, no_flow
 
 # Travel time of each edge (assumed same on both directions, uses the flow and speed from starting site). Returns the table and the number of guessed edges left out
 def edge_travel_times(edges, site_info):
@@ -145,7 +171,7 @@ def edge_travel_times(edges, site_info):
     return both.sort_values(["from_site", "to_site"]).reset_index(drop=True), left_out
 
 # Predicts the traffic at the departure time and builds the graph with travel times as the edge costs. Raises TravelTimeError for any problem the user can fix
-# Returns a dictionary with these keys: {model, time, origin, destinations, nodes, edges, edge_table, site_info, notes}
+# Returns a dictionary with these keys: {model, time, mode ('actual' or 'average'), origin, destinations, nodes, edges, edge_table, site_info, notes}
 def build_graph(model_name, departure_time, origin=DEFAULT_ORIGIN, destinations=None):
     destinations = list(DEFAULT_DESTINATIONS if destinations is None else destinations)
     model_name = str(model_name).lower()
@@ -155,16 +181,17 @@ def build_graph(model_name, departure_time, origin=DEFAULT_ORIGIN, destinations=
 
     # Checks the departure time, origin and destinations
     try:
-        time = read_time(str(departure_time), flows.index, int(d["lookback"]), int(d["horizon"])) # Validates the departure time
+        time, round_note = read_time(str(departure_time)) # Validates the departure time
     except ValueError as exc:
         raise TravelTimeError(str(exc))
+    use_dataset = history_available(time, flows.index, int(d["lookback"]), int(d["horizon"])) # Uses dataset reading if the date and time is in the timeframe
     unknown = [s for s in [origin] + destinations if s not in sites] # List of origin and destination sites not in the data
     if unknown:
         raise TravelTimeError(f"site(s) {', '.join(map(str, unknown))} not found in the data!")
 
-    flow_per_hour, no_input = predict_site_flows(model_name, flows, time, d)
-    speed = np.where(no_input, SPEED_LIMIT_KMH, speed_kmh(np.nan_to_num(flow_per_hour))) # Calculate speed from flow, if no prediction set at speed limit
-    site_info = pd.DataFrame({"flow_veh_per_h": flow_per_hour, "speed_kmh": speed, "no_prediction": no_input}, index=sites)
+    flow_per_hour, no_flow = predict_site_flows(model_name, flows, time, d, use_dataset)
+    speed = np.where(no_flow, SPEED_LIMIT_KMH, calculate_speed(np.nan_to_num(flow_per_hour))) # Calculate speed from flow, if no prediction set at speed limit
+    site_info = pd.DataFrame({"flow_veh_per_h": flow_per_hour, "speed_kmh": speed, "no_prediction": no_flow}, index=sites)
     both, left_out = edge_travel_times(edges, site_info)
 
     # Same layout as parse_file() in Assignment 2A (coordinates rounded to 4 decimals, same as the graph file)
@@ -174,11 +201,16 @@ def build_graph(model_name, departure_time, origin=DEFAULT_ORIGIN, destinations=
         graph_edges[int(e.from_site)].append((int(e.to_site), float(e.travel_time_min)))
 
     notes = []
-    if no_input.any(): # Checks if any site has no input, will use speed limit for them
-        notes.append(f"No prediction for site(s): {', '.join(str(s) for s, bad in zip(sites, no_input) if bad)} (empty readings just before this time, used 60 km/h)")
+    if round_note:
+        notes.append(round_note) # Shows note if the time was rounded down
+    if not use_dataset:
+        notes.append(f"No readings before {time:%Y-%m-%d %H:%M} in the data, used the average {time:%A} traffic at this time of day "
+                     f"(average of the {flows.index.min():%d %b} to {flows.index.max():%d %b %Y} readings). Holidays and trends are not captured")
+    if no_flow.any(): # Checks if any site has no flow, will use speed limit for them
+        notes.append(f"No prediction for site(s): {', '.join(str(s) for s, bad in zip(sites, no_flow) if bad)} (empty readings just before this time, used 60 km/h)")
     if left_out: # States how many guessed edges are skipped
         notes.append(f"Skipped {left_out} guessed edge(s)")
-    return {"model": model_name, "time": time, "origin": origin, "destinations": destinations, "nodes": nodes, "edges": graph_edges,
+    return {"model": model_name, "time": time, "mode": "actual" if use_dataset else "average", "origin": origin, "destinations": destinations, "nodes": nodes, "edges": graph_edges,
             "edge_table": both, "site_info": site_info, "notes": notes}
 
 # Writes the graph in the Assignment 2A format and a .csv file of edge times
@@ -226,7 +258,7 @@ def main():
 
     # Prints summary to terminal
     info, times = graph["site_info"], graph["edge_table"]["travel_time_min"]
-    print(f"Model {graph['model']}, departure {graph['time']:%Y-%m-%d %H:%M}, {len(graph['edge_table'])} directed edges")
+    print(f"Model {graph['model']}, departure {graph['time']:%Y-%m-%d %H:%M} ({graph['mode']} traffic), {len(graph['edge_table'])} directed edges")
     print(f"Predicted flow: {info['flow_veh_per_h'].min():.0f} - {info['flow_veh_per_h'].max():.0f} veh/h | Speed: {info['speed_kmh'].min():.1f} - {info['speed_kmh'].max():.1f} km/h, "
           f"Edge times: {times.min():.2f} - {times.max():.2f} min")
     for note in graph["notes"]:
