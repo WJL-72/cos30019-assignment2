@@ -1,0 +1,15 @@
+# config.toml - default values for the TBRGS GUI (gui.py)
+# Change the values here instead of the code. Reset to defaults in the GUI reads this file's values.
+
+[gui]
+origin = 2000                   # example from the brief (WARRIGAL_RD / TOORAK_RD)
+destination = 3002              # example from the brief (DENMARK_ST / BARKERS_RD)
+departure_date = "2006-10-30"   # a Monday inside the test period, so real readings are used
+departure_time = "08:00"        # morning peak, traffic actually matters here
+model = "rf"                    # lowest test RMSE of the three models (see 'python main.py compare')
+method = "AS"                   # A* is the default search in main.py too
+flow_mode = "average"           # "average" per approach or "sum" of approaches, same as FLOW_PER_APPROACH = True in calculate_time.py
+include_guessed = false         # same as INCLUDE_GUESSED_EDGES = False in calculate_time.py
+routes = 5                      # how many routes to show, the brief asks for up to 5
+first_date = "2006-10-27"       # dates offered in the drop-down: the test period (TEST_START in make_windows.py)
+last_date = "2006-10-31"        # last day in the data, other dates can still be typed in
